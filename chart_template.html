@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BTC 전체 기간 차트</title>
+<script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+ body{font-family:system-ui,'Malgun Gothic',sans-serif;margin:0;padding:12px 16px;background:#0f172a;color:#e2e8f0;line-height:1.6}
+ h1{font-size:18px;margin:0} .sub{color:#94a3b8;font-size:12px;margin-bottom:8px}
+ .bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center}
+ .bar .lab{font-size:12px;color:#94a3b8;margin:0 2px 0 10px} .bar .lab:first-child{margin-left:0}
+ button{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:4px 10px;font-size:13px;cursor:pointer}
+ button.on{background:#f59e0b;color:#0f172a;border-color:#f59e0b}
+ button.chip.on{background:#1e293b;color:#e2e8f0;border-color:var(--c)} button.chip{color:#64748b} button.chip::before{content:'■ ';color:var(--c)}
+ #wrap{position:relative;height:74vh;min-height:440px;border:1px solid #1e293b;border-radius:8px;overflow:hidden}
+ #chart{position:absolute;inset:0}
+ #legend{position:absolute;left:10px;top:8px;z-index:5;font-size:12px;pointer-events:none;line-height:1.5;text-shadow:0 0 4px #0f172a,0 0 4px #0f172a}
+ #legend .up{color:#22c55e} #legend .dn{color:#ef4444} #legend i{font-style:normal;margin-right:10px}
+ #mrect{position:absolute;z-index:4;display:none;pointer-events:none}
+ #mlabel{position:absolute;z-index:6;display:none;pointer-events:none;color:#fff;font-size:12px;padding:4px 8px;border-radius:4px;white-space:nowrap;text-align:center}
+ .box{background:#1e293b;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:13px}
+ .keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:2px 18px}
+ kbd{background:#0f172a;border:1px solid #475569;border-radius:4px;padding:0 5px;font-size:11px;font-family:inherit}
+ .note{color:#94a3b8;font-size:12px;margin-top:8px} a{color:#38bdf8}
+ table{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0} th,td{padding:4px 8px;border-bottom:1px solid #334155;text-align:right;white-space:nowrap}
+ th:first-child,td:first-child{text-align:left}
+</style></head><body>
+<h1>BTC 전체 기간 차트: 이동평균선과 모델 적용 결과</h1><div class="sub" id="sub"></div>
+<div class="bar"><span class="lab">기간</span><span id="ranges"></span><span class="lab">모델 예측 기간</span><span id="hz"></span>
+ <span class="lab">세로축</span><button id="logb" class="on">로그</button><span class="lab">표시</span><span id="chips"></span></div>
+<div class="box" id="count" style="margin:0 0 8px"></div>
+<div id="wrap"><div id="chart"></div><div id="legend"></div><div id="mrect"></div><div id="mlabel"></div></div>
+<div class="box"><b>조작법</b><div class="keys">
+ <span>마우스 휠: 확대·축소 (오른쪽 끝 고정)</span><span><kbd>Ctrl</kbd> + 휠: 마우스 위치를 중심으로 확대·축소</span>
+ <span>드래그: 좌우 이동</span><span>가격축·시간축 드래그: 그 축만 늘이고 줄이기</span>
+ <span>축 더블클릭: 그 축 자동 맞춤</span><span><kbd>Shift</kbd> + 클릭 후 끝점 클릭: 구간 측정 (가격 차이, %, 일수)</span>
+ <span><kbd>←</kbd> <kbd>→</kbd>: 좌우 이동</span><span><kbd>Ctrl</kbd> + <kbd>←</kbd> <kbd>→</kbd>: 크게 이동</span>
+ <span><kbd>Ctrl</kbd> + <kbd>↑</kbd> <kbd>↓</kbd>: 확대·축소</span><span><kbd>Alt</kbd> + <kbd>R</kbd>: 처음 화면으로</span>
+ <span><kbd>Alt</kbd> + <kbd>L</kbd>: 로그 축 전환</span><span><kbd>Esc</kbd>: 측정 지우기</span></div></div>
+<div class="box" id="stats"></div>
+<div class="box" id="halv"></div>
+<div class="box" id="ratebox"></div>
+<div class="note">이동평균선은 모델과 무관한 단순 평균입니다. '모델 80% 구간'과 '모델 앙상블'은 각 날짜보다 예측 기간만큼 앞선 시점에,
+그때까지의 데이터만으로 만든 값입니다. 오른쪽 끝의 캔들 없는 구간은 아직 오지 않은 날짜에 대한 예측입니다. 투자 조언이 아닙니다.<br>
+차트: <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> Lightweight Charts™ (Apache 2.0)</div>
+<script>
+const D = __DATA__, x = D.dates, n = D.n_candles, L = LightweightCharts;
+let H = '7', isLog = true;
+const $ = id => document.getElementById(id), f0 = v => '$' + Math.round(v).toLocaleString();
+$('sub').textContent = `${D.first_date} ~ ${D.last_date} · 마지막 종가 ${f0(D.last_close)} · ${D.real_from} 이전은 종가만 있는 자료(Coin Metrics)로 그린 캔들, 2017-08까지 Yahoo Finance, 이후 Binance · 갱신 ${D.updated_at}`;
+
+const chart = L.createChart($('chart'), {autoSize:true,
+ layout:{background:{color:'#0f172a'}, textColor:'#cbd5e1', fontFamily:"system-ui,'Malgun Gothic',sans-serif"},
+ grid:{vertLines:{color:'#1a2438'}, horzLines:{color:'#1a2438'}}, crosshair:{mode:L.CrosshairMode.Normal},
+ rightPriceScale:{mode:L.PriceScaleMode.Logarithmic, borderColor:'#334155'},
+ leftPriceScale:{visible:false, borderColor:'#334155', scaleMargins:{top:0.55, bottom:0.05}},
+ timeScale:{borderColor:'#334155', rightOffset:4, minBarSpacing:0.05, rightBarStaysOnScroll:true},
+ localization:{dateFormat:'yyyy-MM-dd'}});
+const USD = {type:'custom', minMove:0.01, formatter:p => '$' + (Math.abs(p) < 100 ? p.toFixed(2) : Math.round(p).toLocaleString())};
+const PCT = {type:'custom', minMove:0.01, formatter:p => p.toFixed(2) + '%'};
+const ts = chart.timeScale();
+const pts = a => { const r = []; for (let i = 0; i < x.length; i++) if (a[i] != null) r.push({time:x[i], value:a[i]}); return r; };
+const line = (color, lineWidth, extra = {}) => chart.addLineSeries({color, lineWidth, priceFormat:USD, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false, ...extra});
+
+// 80% 구간을 색 띠로 칠한다 (캔들 뒤쪽)
+class Prim { constructor(fn, visible = true) { this.fn = fn; this.visible = visible; }
+ attached(p) { this.p = p; } detached() {} updateAllViews() {}
+ show(v) { this.visible = v; if (this.p) this.p.requestUpdate(); }
+ paneViews() { const s = this; return [{zOrder:() => 'bottom', renderer:() => ({draw(target) { if (!s.visible) return;
+  target.useBitmapCoordinateSpace(sc => s.fn(sc, s.p.series)); }})}]; } }
+function fillBetween(sc, series, lo, hi, color) { const r = ts.getVisibleLogicalRange(); if (!r) return;
+ const a = Math.max(0, Math.floor(r.from) - 1), b = Math.min(x.length - 1, Math.ceil(r.to) + 1), up = [], dn = [];
+ const step = Math.max(1, Math.floor((b - a) / 1500));
+ for (let i = a; i <= b; i += step) { if (lo[i] == null || hi[i] == null) continue;
+  const X = ts.logicalToCoordinate(i), y1 = series.priceToCoordinate(hi[i]), y2 = series.priceToCoordinate(lo[i]);
+  if (X == null || y1 == null || y2 == null) continue;
+  up.push([X * sc.horizontalPixelRatio, y1 * sc.verticalPixelRatio]); dn.push([X * sc.horizontalPixelRatio, y2 * sc.verticalPixelRatio]); }
+ if (up.length < 2) return; const c = sc.context; c.beginPath();
+ up.forEach(([X, Y], i) => i ? c.lineTo(X, Y) : c.moveTo(X, Y)); dn.reverse().forEach(([X, Y]) => c.lineTo(X, Y));
+ c.closePath(); c.fillStyle = color; c.fill(); }
+
+// 레인보우: log10(가격) = a + b·log10(제네시스 이후 일수) + 밴드 간격
+const RB = D.rainbow, RBC = ['#7c3aed', '#4f46e5', '#2563eb', '#0891b2', '#16a34a', '#ca8a04', '#ea580c', '#dc2626', '#9f1239'];
+const rbEdges = RB.offsets.map(o => x.map((_, i) => Math.pow(10, RB.a + RB.b * Math.log10(RB.first_day + i) + o)));
+const rbBand = (i, price) => { for (let k = 0; k < 9; k++) if (price < rbEdges[k + 1][i]) return k + 1; return 9; };
+const showEv = {halving:false, etf:false};
+const HV = D.events.filter(e => e.kind === 'halving');
+const dayIdx = d => Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.parse(x[0] + 'T00:00:00Z')) / 864e5);
+const TODAY = dayIdx(new Date());                       // 페이지를 연 날짜 기준
+const dday = i => { const k = i - TODAY; return k > 0 ? `D-${k.toLocaleString()}` : k === 0 ? 'D-DAY' : `${(-k).toLocaleString()}일 지남`; };
+const dateAt = i => x[i] || new Date(Date.parse(x[0] + 'T00:00:00Z') + i * 864e5).toISOString().slice(0, 10);
+// 어떤 날짜가 반감기 ±500일 구간의 어디쯤인지
+function halvingPos(i) { const e = HV.reduce((a, b) => Math.abs(b.i - i) < Math.abs(a.i - i) ? b : a), k = i - e.i;
+ return `${e.label} ${k === 0 ? '당일' : k > 0 ? '+' + k + '일' : k + '일'}${Math.abs(k) <= 500 ? ' (±500일 구간 안)' : ' (구간 밖)'}`; }
+const EVC = {halving:['rgba(250,204,21,0.07)', '#facc15'], etf:['rgba(56,189,248,0.10)', '#38bdf8']};
+
+const sLo = line('rgba(167,139,250,0.55)', 1), sHi = line('rgba(167,139,250,0.55)', 1);
+const sEns = line('#f59e0b', 1, {visible:false});
+const sMA = {20:line('#94a3b8', 1, {visible:false}), 50:line('#38bdf8', 2), 200:line('#f472b6', 2)};
+// 미국 금리: 왼쪽 축(%)에 따로 그린다
+const RATES = [['policy', '미국 기준금리', '#f43f5e', 1], ['us2y', '미국 2년 금리', '#fbbf24', 0], ['us10y', '미국 10년 금리', '#2dd4bf', 0]].filter(r => D.rates && D.rates[r[0]]).map(([key, label, color, steps]) => {
+ const s = line(color, 2, {priceScaleId:'left', priceFormat:PCT, visible:false, lineType:steps, lastValueVisible:true}); s.setData(pts(D.rates[key])); return {key, label, color, s}; });
+const candles = chart.addCandlestickSeries({priceFormat:USD, upColor:'#22c55e', downColor:'#ef4444', borderVisible:false, wickUpColor:'#22c55e', wickDownColor:'#ef4444'});
+candles.setData(x.map((t, i) => i < n ? {time:t, open:D.open[i], high:D.high[i], low:D.low[i], close:D.close[i]} : {time:t}));  // 미래 날짜는 빈 칸으로 축만 늘린다
+for (const k of [20, 50, 200]) sMA[k].setData(pts(D.ma[k]));
+const rainbow = new Prim((sc, s) => { for (let k = 0; k < 9; k++) fillBetween(sc, s, rbEdges[k], rbEdges[k + 1], RBC[k] + '55'); }, false);
+const events = new Prim(sc => { const c = sc.context, hr = sc.horizontalPixelRatio, vr = sc.verticalPixelRatio, Hh = sc.bitmapSize.height;
+ D.events.forEach(e => { if (!showEv[e.kind]) return;
+  const xa = ts.logicalToCoordinate(e.i0), xb = ts.logicalToCoordinate(e.i1), xc = ts.logicalToCoordinate(e.i); if (xa == null || xb == null || xc == null) return;
+  const [fill, col] = EVC[e.kind]; c.fillStyle = fill; c.fillRect(xa * hr, 0, (xb - xa) * hr, Hh);
+  c.strokeStyle = col; c.lineWidth = hr; c.setLineDash([6 * hr, 4 * hr]); c.beginPath(); c.moveTo(xc * hr, 0); c.lineTo(xc * hr, Hh); c.stroke(); c.setLineDash([]);
+  c.fillStyle = col; c.font = `${12 * vr}px system-ui,'Malgun Gothic',sans-serif`;
+  const yb = Hh - (e.kind === 'etf' ? 26 : 10) * vr;
+  c.fillText(e.kind === 'halving' ? `${e.label} · ${dday(e.i)}` : e.label, xc * hr + 5 * hr, yb);
+  if (e.kind === 'halving') { c.font = `${11 * vr}px system-ui,'Malgun Gothic',sans-serif`; c.globalAlpha = 0.85;
+   c.fillText(`−500일 · ${dday(e.i0)}`, xa * hr + 4 * hr, 14 * vr); c.textAlign = 'right';
+   c.fillText(`+500일 · ${dday(e.i1)}`, xb * hr - 4 * hr, 14 * vr); c.textAlign = 'left'; c.globalAlpha = 1; } }); });
+const band = new Prim((sc, s) => fillBetween(sc, s, band.lo, band.hi, 'rgba(167,139,250,0.20)')); band.lo = []; band.hi = [];
+// 금리 기대 국면: 2년 금리가 기준금리보다 0.25%p 넘게 낮으면 인하 기대(초록), 높으면 인상 기대(빨강)
+const rateReg = new Prim(sc => { const c = sc.context, hr = sc.horizontalPixelRatio, Hh = sc.bitmapSize.height;
+ (D.rate_regimes || []).forEach(g => { const xa = ts.logicalToCoordinate(g.i0), xb = ts.logicalToCoordinate(g.i1); if (xa == null || xb == null) return;
+  c.fillStyle = g.k === 'cut' ? 'rgba(34,197,94,0.13)' : 'rgba(239,68,68,0.13)'; c.fillRect(xa * hr, 0, Math.max(1, (xb - xa) * hr), Hh); }); }, false);
+// 금리 수준·기조 국면: 위쪽 띠(진한 색) + 배경(옅은 색). '금리 기대 국면'을 함께 켜면 띠만 남긴다
+const STC = {low_down:['34,197,94', '저금리 유지·하락'], low_up:['250,204,21', '저금리 상승'], high_up:['239,68,68', '고금리 유지·상승'], high_down:['168,85,247', '고금리 하락']};
+const rateStance = new Prim(sc => { const c = sc.context, hr = sc.horizontalPixelRatio, vr = sc.verticalPixelRatio, Hh = sc.bitmapSize.height;
+ (D.rate_stance || []).forEach(g => { const xa = ts.logicalToCoordinate(g.i0), xb = ts.logicalToCoordinate(g.i1); if (xa == null || xb == null) return;
+  const wd = Math.max(1, (xb - xa) * hr), col = STC[g.k][0];
+  if (!rateReg.visible) { c.fillStyle = `rgba(${col},0.10)`; c.fillRect(xa * hr, 0, wd, Hh); }
+  c.fillStyle = `rgba(${col},0.9)`; c.fillRect(xa * hr, 0, wd, 7 * vr); }); }, false);
+const stanceAt = i => { const g = (D.rate_stance || []).find(g => i >= g.i0 && i < g.i1); return g ? g.k : null; };
+const rateMarkers = (D.rate_marks || []).filter(m => m.i >= 0 && m.i < n).map(m => ({time:x[m.i], position:m.change > 0 ? 'aboveBar' : 'belowBar',
+ color:m.change > 0 ? '#f43f5e' : '#22c55e', shape:m.change > 0 ? 'arrowDown' : 'arrowUp', text:(m.change > 0 ? '+' : '') + m.change.toFixed(2)}));
+[rainbow, rateReg, rateStance, events, band].forEach(p => candles.attachPrimitive(p));
+const sCyc = Object.entries(D.cycle_paths).map(([name, arr], k) => { const s = line(['#e2e8f0', '#fb923c', '#34d399'][(k + 1) % 3], 1, {visible:false, lineStyle:2}); s.setData(pts(arr)); return [name, s, ['#e2e8f0', '#fb923c', '#34d399'][(k + 1) % 3], arr]; });
+const idx = new Map(x.map((t, i) => [t, i]));
+
+function setHorizon(h) { H = h; const m = D.model[H];
+ sLo.setData(pts(m.lo)); sHi.setData(pts(m.hi)); sEns.setData(pts(m.ensemble)); band.lo = m.lo; band.hi = m.hi;
+ const e = m.ensemble_stats, s = m.band_stats;
+ $('stats').innerHTML = `<b>${H}일 예측을 과거 전 구간에 적용한 성적</b><br>
+  80% 구간: 실제 가격이 구간 안에 들어온 비율 ${s.coverage}% (목표 80%, ${s.n.toLocaleString()}일)<br>
+  앙상블 가격 예측: 평균 오차 ${e.ensemble_mape}% · 현재가 유지(Random Walk) ${e.rw_mape}% · 차이 ${e.vs_rw_pct > 0 ? '+' : ''}${e.vs_rw_pct}% (양수면 모델이 나음, ${e.n.toLocaleString()}일)`;
+ legend(n - 1); }
+
+// 왼쪽 위 상태줄: 십자선 위치의 값
+function legend(i) { const m = D.model[H]; if (i == null || i < 0 || i >= x.length) i = n - 1;
+ let h = `<b>${x[i]}</b> `;
+ if (i < n) { const o = D.open[i], c = D.close[i], p = i ? D.close[i - 1] : o, ch = (c / p - 1) * 100, k = c >= o ? 'up' : 'dn';
+  h += `<span class="${k}">시 ${f0(o)} 고 ${f0(D.high[i])} 저 ${f0(D.low[i])} 종 ${f0(c)} (${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%)</span>`; }
+ else h += '<span style="color:#94a3b8">아직 오지 않은 날짜</span>';
+ h += '<br>'; const v = (label, val, color) => val == null ? '' : `<i style="color:${color}">${label} ${f0(val)}</i>`;
+ h += v('MA20', D.ma['20'][i], '#94a3b8') + v('MA50', D.ma['50'][i], '#38bdf8') + v('MA200', D.ma['200'][i], '#f472b6');
+ if (m.lo[i] != null) h += `<br><i style="color:#a78bfa">${H}일 전 80% 구간 ${f0(m.lo[i])} ~ ${f0(m.hi[i])}</i>` + v('앙상블', m.ensemble[i], '#f59e0b');
+ if (rainbow.visible && i < n) h += `<br><i style="color:${RBC[rbBand(i, D.close[i]) - 1]}">레인보우 ${rbBand(i, D.close[i])}단계 / 9 (1이 가장 낮음)</i>`;
+ sCyc.forEach(([name, s, c, arr]) => { if (s.options().visible) h += v(name, arr[i], c); });
+ h += `<br><i style="color:#facc15">${halvingPos(i)}</i>`;
+ const rt = RATES.filter(r => r.s.options().visible && D.rates[r.key][i] != null).map(r => `<i style="color:${r.color}">${r.label} ${D.rates[r.key][i].toFixed(2)}%</i>`).join('');
+ if (rt) h += '<br>' + rt;
+ if (rateStance.visible && stanceAt(i)) h += `<br><i style="color:rgb(${STC[stanceAt(i)][0]})">금리 국면: ${STC[stanceAt(i)][1]}</i>`;
+ $('legend').innerHTML = h; }
+const tkey = t => typeof t === 'string' ? t : `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+
+// Shift+클릭 측정
+let M = null;
+function drawMeasure() { const r = $('mrect'), l = $('mlabel'); if (!M || !M.b) { r.style.display = l.style.display = 'none'; return; }
+ const x1 = ts.logicalToCoordinate(M.a.i), x2 = ts.logicalToCoordinate(M.b.i), y1 = candles.priceToCoordinate(M.a.p), y2 = candles.priceToCoordinate(M.b.p);
+ if ([x1, x2, y1, y2].some(v => v == null)) { r.style.display = l.style.display = 'none'; return; }
+ const up = M.b.p >= M.a.p, col = up ? '56,189,248' : '239,68,68', d = M.b.p - M.a.p, days = M.b.i - M.a.i;
+ Object.assign(r.style, {display:'block', left:Math.min(x1, x2) + 'px', top:Math.min(y1, y2) + 'px', width:Math.abs(x2 - x1) + 'px', height:Math.abs(y2 - y1) + 'px',
+  background:`rgba(${col},0.18)`, border:`1px solid rgba(${col},0.9)`});
+ l.innerHTML = `${d >= 0 ? '+' : '-'}${f0(Math.abs(d))} (${(d / M.a.p * 100 >= 0 ? '+' : '') + (d / M.a.p * 100).toFixed(2)}%)<br>${days >= 0 ? '' : '-'}${Math.abs(days)}일 · ${x[Math.round(M.a.i)] || ''} → ${x[Math.round(M.b.i)] || ''}`;
+ Object.assign(l.style, {display:'block', background:`rgba(${col},0.95)`, left:Math.max(4, (x1 + x2) / 2 - 90) + 'px', top:Math.max(4, (up ? Math.min(y1, y2) - 46 : Math.max(y1, y2) + 6)) + 'px'}); }
+const at = p => p.point && p.logical != null ? {i:p.logical, p:candles.coordinateToPrice(p.point.y)} : null;
+let shiftDown = false;
+chart.subscribeClick(p => { const shift = (p.sourceEvent && p.sourceEvent.shiftKey) || shiftDown, q = at(p);
+ if (M && !M.fixed) { if (q && q.p != null) M.b = q; M.fixed = !!M.b; }          // 두 번째 클릭은 Shift 없이도 확정
+ else if (shift && q && q.p != null) M = {a:q, b:null, fixed:false};              // 첫 번째 점
+ else if (M && M.fixed) M = null;                                                 // 다음 클릭에 지움
+ drawMeasure(); });
+chart.subscribeCrosshairMove(p => { legend(p.time ? idx.get(tkey(p.time)) : null);
+ if (M && !M.fixed) { const q = at(p); if (q && q.p != null) { M.b = q; drawMeasure(); } } });
+ts.subscribeVisibleLogicalRangeChange(drawMeasure);
+setInterval(() => { if (M) drawMeasure(); }, 150);  // 가격축을 끌어 늘일 때도 따라가도록
+
+// 버튼
+const NEAR = n - 1 + 36;  // 오늘에서 36일 뒤까지 (모델 예측이 있는 범위)
+function view(days) { ts.setVisibleLogicalRange(days === 'future' ? {from:-5, to:x.length + 5} : days ? {from:n - 1 - days, to:NEAR} : {from:-5, to:NEAR}); }
+function reset() { chart.priceScale('right').applyOptions({autoScale:true}); view(365); mark('ranges', '1년'); }
+function mark(group, label) { document.querySelectorAll(`#${group} button`).forEach(b => b.classList.toggle('on', b.textContent === label)); }
+const etfDays = n - 1 - idx.get('2024-01-10');
+[['3개월', 90], ['1년', 365], ['3년', 1095], ['ETF 이후', etfDays], ['전체', 0], ['다음 반감기까지', 'future']].forEach(([label, k]) => { const b = document.createElement('button');
+ b.textContent = label; b.onclick = () => { view(k); mark('ranges', label); }; $('ranges').appendChild(b); });
+Object.keys(D.model).forEach(h => { const b = document.createElement('button'); b.textContent = h + '일';
+ b.onclick = () => { setHorizon(h); mark('hz', h + '일'); }; $('hz').appendChild(b); });
+function setLog(v) { isLog = v; $('logb').classList.toggle('on', v); chart.priceScale('right').applyOptions({mode:v ? L.PriceScaleMode.Logarithmic : L.PriceScaleMode.Normal}); }
+$('logb').onclick = () => setLog(!isLog);
+[['20일선', '#94a3b8', [sMA[20]], false], ['50일선', '#38bdf8', [sMA[50]], true], ['200일선', '#f472b6', [sMA[200]], true],
+ ['모델 80% 구간', '#a78bfa', [sLo, sHi], true], ['모델 앙상블', '#f59e0b', [sEns], false]].forEach(([label, c, ss, on]) => { const b = document.createElement('button');
+ b.className = 'chip' + (on ? ' on' : ''); b.style.setProperty('--c', c); b.textContent = label;
+ b.onclick = () => { const v = !b.classList.contains('on'); b.classList.toggle('on', v); ss.forEach(s => s.applyOptions({visible:v}));
+  if (ss[0] === sLo) band.show(v); }; $('chips').appendChild(b); });
+[['레인보우', '#16a34a', v => rainbow.show(v)], ['반감기 ±500일', '#facc15', v => { showEv.halving = v; events.show(true); }],
+ ['ETF 승인 ±100일', '#38bdf8', v => { showEv.etf = v; events.show(true); }],
+ ['이전 사이클 경로', '#fb923c', v => sCyc.forEach(([, s]) => s.applyOptions({visible:v}))],
+ ['금리 수준·기조', '#a855f7', v => rateStance.show(v)], ['금리 기대 국면', '#22c55e', v => { rateReg.show(v); rateStance.show(rateStance.visible); }], ['금리 인상·인하', '#f43f5e', v => candles.setMarkers(v ? rateMarkers : [])],
+ ...RATES.map(r => [r.label, r.color, v => { r.s.applyOptions({visible:v}); chart.applyOptions({leftPriceScale:{visible:RATES.some(q => q.s.options().visible)}}); }])].forEach(([label, c, fn]) => { const b = document.createElement('button');
+ b.className = 'chip'; b.style.setProperty('--c', c); b.textContent = label;
+ b.onclick = () => { const v = !b.classList.contains('on'); b.classList.toggle('on', v); fn(v); legend(n - 1); }; $('chips').appendChild(b); });
+const pc = v => v == null ? '-' : (v >= 0 ? '+' : '') + v + '%';
+if (D.rate_study) { const S = D.rate_study, w = S.weekly, pp = v => v == null ? '-' : v + '%', mv = S.moves_summary;
+ const g = (k, h) => mv.find(m => m.kind === k && m.horizon === h);
+ const good = (v, base) => v == null ? '' : v > base + 5 ? 'color:#4ade80' : v < base - 5 ? 'color:#f87171' : '';
+ $('ratebox').innerHTML = `<b>금리 가설 검증</b> <span style="color:#94a3b8">(${S.from} ~ ${S.to}) "금리가 오르면 BTC 하락, 인하 기대가 생기면 BTC 상승"</span><br>
+ 현재: 기준금리 ${S.now.policy_upper}% · 2년 금리 ${S.now.us2y}% · 차이 ${S.now.gap > 0 ? '+' : ''}${S.now.gap}%p → <b>${S.now.regime}</b> 국면
+ <div style="overflow-x:auto"><table><tr><th>① 같은 주에 함께 움직였나</th>${w.map(r => `<th>${r.period}</th>`).join('')}</tr>
+ <tr><td>BTC가 오른 주의 비율 (기준)</td>${w.map(r => `<td>${pp(r.base_up)}</td>`).join('')}</tr>
+ <tr><td>2년 금리가 0.10%p 넘게 오른 주에 BTC가 내린 비율</td>${w.map(r => `<td>${pp(r.down_when_big_up)} (${r.n_big_up}주)</td>`).join('')}</tr>
+ <tr><td>2년 금리가 0.10%p 넘게 내린 주에 BTC가 오른 비율</td>${w.map(r => `<td>${pp(r.up_when_big_down)} (${r.n_big_down}주)</td>`).join('')}</tr>
+ <tr><td>상관계수</td>${w.map(r => `<td>${r.corr_same_week}</td>`).join('')}</tr></table>
+ <table><tr><th>② 기대 국면별 이후 BTC</th><th>기간</th><th>일수</th><th>구간 수</th><th>30일 뒤 상승 비율</th><th>30일 중앙값</th><th>90일 뒤 상승 비율</th><th>90일 중앙값</th><th>독립 표본(90일)</th></tr>
+ ${S.regimes.map(r => { const base = S.regimes.find(b => b.period === r.period && b.regime.startsWith('기준'));
+  return `<tr><td>${r.regime}</td><td>${r.period}</td><td>${r.days.toLocaleString()}</td><td>${r.episodes ?? '-'}</td><td style="${good(r.up_30, base.up_30)}">${pp(r.up_30)}</td><td>${pc(r.median_30)}</td><td style="${good(r.up_90, base.up_90)}">${pp(r.up_90)}</td><td>${pc(r.median_90)}</td><td>약 ${r.n_indep_90}개</td></tr>`; }).join('')}</table>
+ <table><tr><th>③ 실제 금리 결정 이후</th><th>횟수</th><th>30일 뒤 가설대로 움직인 비율</th><th>30일 중앙값</th><th>90일 뒤 가설대로 움직인 비율</th><th>90일 중앙값</th></tr>
+ ${['인상', '인하'].map(k => `<tr><td>${k} 후 BTC ${k === '인상' ? '하락' : '상승'}</td><td>${g(k, 30).events}회</td><td>${pp(g(k, 30).hit_pct)}</td><td>${pc(g(k, 30).median_ret)}</td><td>${pp(g(k, 90).hit_pct)}</td><td>${pc(g(k, 90).median_ret)}</td></tr>`).join('')}</table></div>
+ ${S.stance ? `<div style="overflow-x:auto"><table><tr><th>④ 금리 수준·기조별 BTC</th><th>일수</th><th>오른 달 비율 (기준 ${S.stance.base_up_months}%)</th><th>월 수익률 중앙값</th><th>구간 중 BTC가 오른 횟수</th><th>구간별 BTC 변화</th></tr>
+ ${S.stance.rows.map(r => `<tr><td><span style="color:rgb(${STC[r.key][0]})">■</span> ${r.regime}</td><td>${r.days.toLocaleString()}</td><td style="${good(r.up_months, S.stance.base_up_months)}">${pp(r.up_months)}</td><td>${pc(r.median_month)}</td><td>${r.episodes.length}번 중 ${r.episodes_up}번</td>
+  <td style="text-align:left;white-space:normal">${r.episodes.map(e => `${e.from.slice(0, 7)}~${e.to.slice(0, 7)} ${e.ret >= 0 ? '+' : ''}${e.ret.toLocaleString()}%`).join(' · ')}</td></tr>`).join('')}</table></div>
+ <span style="color:#94a3b8">④는 기준금리 ${S.stance.high_rate}% 이상을 고금리로, 최근 ${S.stance.trend_days}일의 기준금리 변화를 기조로 본 구분입니다. 현재 <b style="color:#e2e8f0">${S.stance.now}</b>. 차트의 '금리 수준·기조' 버튼을 켜면 위쪽 띠와 배경색으로 표시됩니다.</span><br>` : ''}
+ <span style="color:#94a3b8">'인하 기대'는 2년 국채금리가 기준금리(목표 범위 중간값)보다 0.25%p 넘게 낮은 상태, '인상 기대'는 0.25%p 넘게 높은 상태입니다.
+ 초록·빨강 글자는 기준보다 5%p 넘게 차이 나는 값입니다. 금리 인상과 인하는 몇 차례의 시기에 몰려 있어 실제 독립 사례는 표의 횟수보다 적습니다.</span>`; }
+$('halv').innerHTML = `<b>반감기 ±500일 구간 결과</b> <span style="color:#94a3b8">(모델 성적은 7일 예측 기준, 그 구간 안에서만 계산)</span>
+ <div style="overflow-x:auto"><table><tr><th>구간</th><th>반감기 당일 가격</th><th>이전 500일</th><th>이후 500일</th><th>이후 구간 내 최고</th><th>이후 구간 내 최저</th><th>80% 구간 적중률</th><th>앙상블 오차</th><th>현재가 유지 오차</th></tr>` +
+ D.halvings.map(r => r.days_until != null
+  ? (e => `<tr><td>${r.name} (${r.date})</td><td colspan="8" style="text-align:left;color:#94a3b8">−500일 구간 시작 ${dateAt(e.i0)} · <b style="color:#e2e8f0">${dday(e.i0)}</b> &nbsp;|&nbsp; 반감기 <b style="color:#e2e8f0">${dday(e.i)}</b> &nbsp;|&nbsp; +500일 구간 끝 ${dateAt(e.i1)} · <b style="color:#e2e8f0">${dday(e.i1)}</b> &nbsp;|&nbsp; 남은 블록 수 × 10분으로 계산한 예상일</td></tr>`)(HV.find(e => e.label === r.name))
+  : `<tr><td>${r.name} (${r.date})</td><td>$${r.halving_price.toLocaleString()}</td><td>${pc(r.pre_pct)}</td><td>${pc(r.post_pct)}</td><td>${r.peak_mult}배 (${r.peak_day}일째)</td><td>${r.low_mult}배</td><td>${r.band_coverage == null ? '-' : r.band_coverage + '% (' + r.band_n + '일)'}</td><td>${r.ens_mape == null ? '-' : r.ens_mape + '%'}</td><td>${r.rw_mape == null ? '-' : r.rw_mape + '%'}</td></tr>`).join('') + `</table></div>
+ <span style="color:#94a3b8">레인보우: ${RB.fit_from}부터의 가격에 로그 회귀선을 맞춰 9단계로 나눈 띠입니다. 전체 기간으로 사후에 맞춘 곡선이라 과거 구간의 위치는 그 당시에는 알 수 없던 값입니다. 현재 ${RB.current_band}단계.
+ 2012 반감기 구간은 모델에 쓸 일봉이 없어 가격 흐름만 표시합니다. '이전 사이클 경로'는 2012·2016·2020 반감기 ±500일의 가격 흐름을 2024 반감기 당일 가격에 맞춰 옮긴 선입니다.</span>`;
+
+// 키보드와 Ctrl
+const anchor = ctrl => ts.applyOptions({rightBarStaysOnScroll:!ctrl});
+function zoom(f) { const r = ts.getVisibleLogicalRange(); if (r) ts.setVisibleLogicalRange({from:r.to - (r.to - r.from) * f, to:r.to}); }
+function pan(bars) { const r = ts.getVisibleLogicalRange(); if (r) ts.setVisibleLogicalRange({from:r.from + bars, to:r.to + bars}); }
+window.addEventListener('keydown', e => { if (e.key === 'Control') anchor(true); if (e.key === 'Shift') shiftDown = true;
+ const r = ts.getVisibleLogicalRange(), span = r ? r.to - r.from : 100; let used = true;
+ if (e.key === 'ArrowLeft') pan(-(e.ctrlKey ? span * 0.5 : span * 0.05));
+ else if (e.key === 'ArrowRight') pan(e.ctrlKey ? span * 0.5 : span * 0.05);
+ else if (e.key === 'ArrowUp' && e.ctrlKey) zoom(0.8);
+ else if (e.key === 'ArrowDown' && e.ctrlKey) zoom(1.25);
+ else if (e.altKey && (e.key === 'r' || e.key === 'R' || e.code === 'KeyR')) reset();
+ else if (e.altKey && (e.code === 'KeyL')) setLog(!isLog);
+ else if (e.key === 'Escape') { M = null; drawMeasure(); }
+ else used = false;
+ if (used) e.preventDefault(); });
+window.addEventListener('keyup', e => { if (e.key === 'Control') anchor(false); if (e.key === 'Shift') shiftDown = false; });
+window.addEventListener('blur', () => { anchor(false); shiftDown = false; });
+$('wrap').addEventListener('wheel', e => { anchor(e.ctrlKey); if (e.ctrlKey) e.preventDefault(); }, {passive:false, capture:true});  // Ctrl+휠이 페이지 확대로 가지 않게
+
+(function () { const next = HV.find(e => e.i1 >= TODAY && e.i > TODAY) || HV[HV.length - 1], prev = [...HV].reverse().find(e => e.i <= TODAY);
+ const b = t => `<b style="color:#facc15">${t}</b>`;
+ let h = `<b>반감기 ±500일 카운트다운</b> <span style="color:#94a3b8">(오늘 ${dateAt(TODAY)} 기준)</span><br>`;
+ h += `${next.label}: −500일 구간 시작 ${dateAt(next.i0)} ${b(dday(next.i0))} · 반감기 ${dateAt(next.i)} ${b(dday(next.i))} · +500일 구간 끝 ${dateAt(next.i1)} ${b(dday(next.i1))}`;
+ if (prev) h += `<br><span style="color:#94a3b8">${prev.label}: 반감기 후 ${(TODAY - prev.i).toLocaleString()}일째 · +500일 구간 끝 ${dateAt(prev.i1)} (${dday(prev.i1)})</span>`;
+ const inWin = HV.filter(e => TODAY >= e.i0 && TODAY <= e.i1).map(e => e.label);
+ h += `<br><span style="color:#94a3b8">지금 위치: ${inWin.length ? inWin.join(', ') + '의 ±500일 구간 안' : '어느 반감기의 ±500일 구간에도 들어 있지 않음'}</span>`;
+ $('count').innerHTML = h; })();
+setHorizon('7'); mark('hz', '7일'); reset();
+setTimeout(reset, 80); setTimeout(reset, 500);  // 차트 크기가 정해진 뒤 다시 맞춘다
+</script></body></html>

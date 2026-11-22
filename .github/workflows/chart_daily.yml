@@ -1,0 +1,56 @@
+name: Daily BTC Chart
+
+# 매일 09:30 KST(BTC 일봉 마감 30분 뒤)에 chart.py로 차트를 새로 만들어
+# 공개 저장소(SITE_REPO)의 GitHub Pages에 index.html 하나만 올린다.
+# 이 저장소(코드)는 비공개로 두고, 공개되는 것은 차트 페이지뿐이다.
+#
+# 필요한 설정 (DEPLOY.md 참고)
+#   Settings → Secrets and variables → Actions
+#     Secrets   : SITE_TOKEN  = SITE_REPO에만 Contents 쓰기 권한이 있는 fine-grained 토큰
+#     Variables : SITE_REPO   = 사용자명/저장소명  (예: myname/btc-chart)
+
+on:
+  schedule:
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-chart
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install numpy pandas scipy requests
+
+      - name: Build chart
+        run: python chart.py
+
+      - name: Prepare site
+        run: |
+          mkdir -p site
+          cp data/chart.html site/index.html
+          touch site/.nojekyll
+
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          personal_token: ${{ secrets.SITE_TOKEN }}
+          external_repository: ${{ vars.SITE_REPO }}
+          publish_branch: gh-pages
+          publish_dir: ./site
+          force_orphan: true
+          commit_message: "Update BTC chart"

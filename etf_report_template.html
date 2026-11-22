@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BTC ETF 전후 분석</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+ body{font-family:system-ui,'Malgun Gothic',sans-serif;margin:0;padding:16px;background:#0f172a;color:#e2e8f0;line-height:1.6}
+ h1{font-size:20px;margin:0 0 4px} h2{font-size:16px;margin:28px 0 6px} .sub{color:#94a3b8;font-size:13px}
+ .box{background:#1e293b;border-radius:8px;padding:12px 16px;margin:12px 0;font-size:14px}
+ .wrap{overflow-x:auto} table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+ th,td{padding:6px 8px;border-bottom:1px solid #334155;text-align:right;white-space:nowrap}
+ th:first-child,td:first-child{text-align:left} .note{color:#94a3b8;font-size:12px;margin-top:8px}
+ .chart{height:440px}
+</style></head><body>
+<h1>BTC ETF 전후 분석</h1><div class="sub" id="sub"></div>
+<div class="box" id="summary"></div>
+
+<h2>1. ETF 승인 전후 비교</h2>
+<div class="wrap"><table id="t1"></table></div>
+<div class="note">변동성은 일간 수익률 기준 연율 값입니다. '주말/평일'은 주말 변동성을 평일 변동성으로 나눈 값입니다.
+상관은 주간 수익률 기준입니다(금리는 변화폭).</div>
+
+<h2>2. ETF가 없었다면의 가격 추정</h2>
+<div id="c2" class="chart"></div>
+<div class="wrap"><table id="t2"></table></div>
+<div class="note">ETF 이전의 BTC와 나스닥·금·달러·미국 10년 금리의 관계를 ETF 이후로 연장한 값입니다.
+'고유 상승률'은 거시 지표로 설명되지 않는 BTC의 평균 상승률로, 유지하느냐 0으로 두느냐에 따라 결과가 크게 달라집니다.
+범위는 80% 구간입니다. 이더리움은 BTC를 따라 움직이므로 독립된 비교 대상이 아니며 참고용입니다.</div>
+<h2>가짜 시점 검증</h2>
+<div class="wrap"><table id="t2p"></table></div>
+<div class="note">ETF가 없던 과거 시점을 승인일인 척하고 같은 계산을 한 결과입니다. 배수가 1에서 멀수록 방법 자체의 오차가 크다는 뜻입니다.</div>
+
+<h2>3. 반감기 사이클 겹쳐 보기</h2>
+<div id="c3" class="chart"></div>
+<div class="wrap"><table id="t3"></table></div>
+<div class="note">반감기 당일 가격을 1로 둔 배수입니다. 이전 사이클은 두 번뿐이라 범위가 아니라 사례로 보세요. 투자 조언이 아닙니다.</div>
+<div id="flows" style="display:none">
+<h2>4. ETF 순유입과 가격</h2>
+<div class="box" id="fsum"></div>
+<div class="wrap"><table id="t4a"></table></div>
+<div class="note">주간 순유입 크기로 5등분했습니다. '같은 주'는 유입과 동시에 일어난 가격 변화이고, '다음 주'가 예측에 쓸 수 있는 부분입니다.</div>
+<div class="wrap"><table id="t4b"></table></div>
+<div class="note">ETF가 있는 기간 안에서만, 같은 표본으로 피처 묶음을 바꿔 가며 상승 확률 모델을 비교했습니다.
+'확률 오차 개선'이 0 이하면 과거 상승 비율을 그대로 쓰는 것보다 못합니다. 독립 표본이 적어 작은 차이는 의미가 없습니다.</div>
+</div>
+<script>
+const D = __DATA__;
+const f0 = x => x == null ? '-' : '$' + Math.round(x).toLocaleString(), nv = (x, s = '') => x == null ? '-' : x + s;
+const dark = {template:'plotly_dark', paper_bgcolor:'#0f172a', plot_bgcolor:'#0f172a', font:{color:'#e2e8f0'}, margin:{l:60, r:10, t:10, b:40}, legend:{orientation:'h', y:-0.15, yanchor:'top'}};
+document.getElementById('sub').textContent = `기준일 ${D.last_date} · BTC ${f0(D.current_price)} · ETF 승인 ${D.etf_date} · 갱신 ${D.updated_at}`;
+const s = D.stats, pre = s[1], post = s[3], v = D.verdict, cy = D.cycles.rows;
+document.getElementById('summary').innerHTML =
+ `<b>변동성:</b> 이전 사이클의 같은 위치 ${pre.vol_ann}% → ETF 이후 ${post.vol_ann}%. 하루 5% 넘게 움직인 날은 ${pre.big_days_pct}% → ${post.big_days_pct}%.<br>
+ <b>ETF 없는 가격:</b> 가정에 따라 실제 가격이 추정의 ${v.real_min_ratio}배 ~ ${v.real_max_ratio}배로 나옵니다.
+ 같은 방법을 ETF가 없던 시기에 적용하면 보통 ${v.placebo_typical_factor}배, 최악 ${v.placebo_worst_factor}배까지 틀립니다.
+ ${v.distinguishable ? 'ETF 효과가 방법의 오차보다 큽니다.' : '따라서 ETF 효과의 방향과 크기를 이 방법으로는 가려낼 수 없습니다.'}<br>
+ <b>사이클:</b> 반감기 후 ${D.cycles.day_now}일째 가격은 반감기 당일의 ${cy[cy.length - 1].multiple_now}배입니다. 같은 시점에 ${cy.slice(0, -1).map(r => `${r.cycle} ${r.multiple_now}배`).join(', ')}였습니다.`;
+let t = '<tr><th>구간</th><th>기간</th><th>연율 변동성</th><th>일간 평균 변동폭</th><th>5% 넘게 움직인 날</th><th>최대 낙폭</th><th>주말/평일</th><th>나스닥 상관</th><th>금 상관</th><th>달러 상관</th><th>금리 상관</th></tr>';
+s.forEach(r => t += `<tr><td>${r.label}</td><td>${r.start} ~ ${r.end}</td><td>${r.vol_ann}%</td><td>${r.mean_abs}%</td><td>${r.big_days_pct}%</td><td>${r.max_drawdown}%</td><td>${r.weekend_vs_weekday}</td><td>${r.corr_nasdaq}</td><td>${r.corr_gold}</td><td>${r.corr_dxy}</td><td>${r.corr_us10y}</td></tr>`);
+document.getElementById('t1').innerHTML = t;
+const head = '<tr><th>가정</th><th>기간(주)</th><th>설명력 R²</th><th>고유 상승률(연)</th><th>실제 가격</th><th>추정 가격</th><th>80% 범위</th><th>실제/추정</th></tr>';
+const row = r => `<tr><td>${r.label}</td><td>${r.weeks}</td><td>${r.r_squared}</td><td>${nv(r.alpha_annual_pct, '%')}</td><td>${f0(r.actual_end)}</td><td>${f0(r.cf_end)}</td><td>${f0(r.cf_low)} ~ ${f0(r.cf_high)}</td><td>${r.ratio_end}배</td></tr>`;
+document.getElementById('t2').innerHTML = head + D.counterfactual.map(row).join('');
+document.getElementById('t2p').innerHTML = head + D.placebo.map(row).join('');
+const a = D.counterfactual[0], b = D.counterfactual[1];
+Plotly.newPlot('c2', [
+ {x:a.dates, y:a.lo, mode:'lines', line:{width:0}, showlegend:false, hoverinfo:'skip'},
+ {x:a.dates, y:a.hi, mode:'lines', line:{width:0}, fill:'tonexty', fillcolor:'rgba(56,189,248,0.12)', name:'고유 상승률 유지: 80% 범위'},
+ {x:b.dates, y:b.lo, mode:'lines', line:{width:0}, showlegend:false, hoverinfo:'skip'},
+ {x:b.dates, y:b.hi, mode:'lines', line:{width:0}, fill:'tonexty', fillcolor:'rgba(167,139,250,0.15)', name:'고유 상승률 0: 80% 범위'},
+ {x:a.dates, y:a.cf, mode:'lines', name:'추정 (고유 상승률 유지)', line:{color:'#38bdf8', dash:'dash'}},
+ {x:b.dates, y:b.cf, mode:'lines', name:'추정 (고유 상승률 0)', line:{color:'#a78bfa', dash:'dash'}},
+ {x:a.dates, y:a.actual, mode:'lines', name:'실제 가격', line:{color:'#facc15', width:3}}],
+ {...dark, yaxis:{type:'log', title:'USD (로그)'}}, {responsive:true});
+const colors = ['#94a3b8', '#38bdf8', '#facc15'];
+Plotly.newPlot('c3', Object.entries(D.cycles.series).map(([n, c], i) => ({x:c.days, y:c.multiple, mode:'lines', name:n, line:{color:colors[i % 3], width:i == 2 ? 3 : 1.6}})),
+ {...dark, yaxis:{type:'log', title:'반감기 당일 대비 배수 (로그)'}, xaxis:{title:'반감기 이후 일수'},
+  shapes:[{type:'line', x0:D.cycles.day_now, x1:D.cycles.day_now, y0:0, y1:1, yref:'paper', line:{color:'#ef4444', dash:'dot'}}]}, {responsive:true});
+const pct = x => x == null ? '-' : (x >= 0 ? '+' : '') + x + '%';
+let t3 = `<tr><th>사이클</th><th>반감기 당일 가격</th><th>${D.cycles.day_now}일째 배수</th><th>같은 배수였다면 지금 가격</th><th>이후 30일</th><th>이후 90일</th><th>이후 180일</th></tr>`;
+cy.forEach(r => t3 += `<tr><td>${r.cycle}</td><td>${f0(r.halving_price)}</td><td>${nv(r.multiple_now, '배')}</td><td>${f0(r.implied_price_now)}</td><td>${pct(r.fwd_30)}</td><td>${pct(r.fwd_90)}</td><td>${pct(r.fwd_180)}</td></tr>`);
+document.getElementById('t3').innerHTML = t3;
+if (D.flows) { const F = D.flows, w = F.weekly;
+ document.getElementById('flows').style.display = '';
+ document.getElementById('fsum').innerHTML = `<b>자료:</b> Farside, ${F.first_date} ~ ${F.last_date} (${F.days}거래일), 누적 순유입 $${F.cum_usd_bn}bn
+ (${F.by_year.map(y => `${y.year}년 ${y.net_usd_bn >= 0 ? '+' : ''}${y.net_usd_bn}bn`).join(', ')})${F.last_row_incomplete ? '. 마지막 날은 일부 ETF 값이 아직 비어 있습니다' : ''}.<br>
+ <b>앞뒤 관계 (주간 상관, ${w.n}주):</b> 같은 주 ${w.same_week} · 이번 주 가격 → 다음 주 유입 ${w.price_then_flow} · 이번 주 유입 → 다음 주 가격 ${w.flow_then_price}.
+ 자금이 가격을 이끈다기보다 가격을 따라 들어오고 나가는 쪽에 가깝습니다.`;
+ let a = '<tr><th>주간 순유입 구간</th><th>주 수</th><th>평균 순유입</th><th>같은 주 수익률</th><th>다음 주 수익률</th><th>다음 주 상승 비율</th></tr>';
+ F.quintiles.forEach(q => a += `<tr><td>${q.group}</td><td>${q.weeks}</td><td>$${q.avg_flow_usd_bn}bn</td><td>${pct(q.same_week_ret)}</td><td>${pct(q.next_week_ret)}</td><td>${nv(q.next_week_up_pct, '%')}</td></tr>`);
+ document.getElementById('t4a').innerHTML = a;
+ let b = `<tr><th>기간</th><th>피처 묶음</th><th>테스트 정확도</th><th>기준 정확도</th><th>확률 오차 개선</th><th>AUC</th><th>독립 표본</th></tr>`;
+ F.predict.rows.forEach(r => b += `<tr><td>${r.horizon}일</td><td>${r.features}</td><td>${nv(r.accuracy, '%')}</td><td>${nv(r.base_accuracy, '%')}</td><td>${pct(r.brier_skill_pct)}</td><td>${nv(r.auc)}</td><td>약 ${r.n_independent}개</td></tr>`);
+ document.getElementById('t4b').innerHTML = b; }
+</script></body></html>
