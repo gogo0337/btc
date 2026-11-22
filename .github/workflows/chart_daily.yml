@@ -1,13 +1,11 @@
 name: Daily BTC Chart
 
 # 매일 09:30 KST(BTC 일봉 마감 30분 뒤)에 chart.py로 차트를 새로 만들어
-# 공개 저장소(SITE_REPO)의 GitHub Pages에 index.html 하나만 올린다.
-# 이 저장소(코드)는 비공개로 두고, 공개되는 것은 차트 페이지뿐이다.
+# 이 저장소의 GitHub Pages에 index.html로 게시한다.
 #
 # 필요한 설정 (DEPLOY.md 참고)
-#   Settings → Secrets and variables → Actions
-#     Secrets   : SITE_TOKEN  = SITE_REPO에만 Contents 쓰기 권한이 있는 fine-grained 토큰
-#     Variables : SITE_REPO   = 사용자명/저장소명  (예: myname/btc-chart)
+#   - 무료 계정은 공개(Public) 저장소에서만 Pages를 쓸 수 있다.
+#   - Settings → Pages → Source 를 "GitHub Actions"로 바꾼다.
 
 on:
   schedule:
@@ -15,14 +13,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write     # 아래 '예약 실행 유지' 단계에서만 쓴다
+  pages: write
+  id-token: write
 
 concurrency:
-  group: daily-chart
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  build-and-publish:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -45,12 +45,31 @@ jobs:
           cp data/chart.html site/index.html
           touch site/.nojekyll
 
-      - name: Publish to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
         with:
-          personal_token: ${{ secrets.SITE_TOKEN }}
-          external_repository: ${{ vars.SITE_REPO }}
-          publish_branch: gh-pages
-          publish_dir: ./site
-          force_orphan: true
-          commit_message: "Update BTC chart"
+          path: ./site
+
+      # 공개 저장소는 60일 동안 커밋이 없으면 예약 실행이 자동으로 꺼진다.
+      # 마지막 커밋이 50일보다 오래되면 빈 커밋을 하나 남겨 예약을 유지한다.
+      - name: Keep schedule active
+        if: github.event_name == 'schedule'
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt $(( 50 * 86400 )) ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "chore: keep daily chart schedule active"
+            git push
+          fi
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
