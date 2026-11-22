@@ -1,9 +1,9 @@
 # 차트를 매일 웹에 게시하기 (GitHub, 무료)
 
 PC가 꺼져 있어도 GitHub가 매일 09:30(KST)에 `chart.py`를 실행해, 최신 종가로 만든 차트를 웹 주소에 올립니다.
-저장소는 `gogo0337/btc-research` 하나만 씁니다.
+저장소는 `gogo0337/btc` 하나만 씁니다.
 
-- 웹 주소: `https://gogo0337.github.io/btc-research/`
+- 웹 주소: `https://gogo0337.github.io/btc/`
 - 설정 파일: `.github/workflows/chart_daily.yml`
 
 > **공개 범위 주의**: 무료 계정은 공개(Public) 저장소에서만 웹 게시(GitHub Pages)를 쓸 수 있습니다.
@@ -17,15 +17,15 @@ PC가 꺼져 있어도 GitHub가 매일 09:30(KST)에 `chart.py`를 실행해, �
 
 ## 1. 저장소를 공개로 바꾸기
 
-`btc-research` → **Settings** → 맨 아래 **Danger Zone → Change repository visibility → Change to public**
+`btc` → **Settings** → 맨 아래 **Danger Zone → Change repository visibility → Change to public**
 
 ## 2. 웹 게시 켜기
 
-`btc-research` → **Settings → Pages → Build and deployment → Source**: **GitHub Actions**
+`btc` → **Settings → Pages → Build and deployment → Source**: **GitHub Actions**
 
 ## 3. 처음 한 번 수동 실행
 
-`btc-research` → **Actions** 탭 → 왼쪽 **Daily BTC Chart** → **Run workflow** → **Run workflow**
+`btc` → **Actions** 탭 → 왼쪽 **Daily BTC Chart** → **Run workflow** → **Run workflow**
 
 2~3분 뒤 초록 체크가 뜨면 성공이고, 실행 화면의 deploy 단계에 웹 주소가 표시됩니다.
 빨간 X가 뜨면 실행 기록을 열어 마지막 오류 메시지를 확인하세요.
